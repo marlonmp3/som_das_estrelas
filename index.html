@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Som das Estrelas - Visual Pro</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #020205; font-family: 'Rajdhani', sans-serif; color: white; }
+
+        /* UI ESTILO VIDRO (GLASSMORPHISM) */
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(20, 20, 30, 0.4); /* Fundo semi-transparente */
+            backdrop-filter: blur(10px);        /* Desfoque do fundo */
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            max-width: 300px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            text-shadow: 0 0 5px rgba(0,0,0,0.8);
+        }
+
+        h2 { margin: 0 0 10px 0; color: #4fa; text-transform: uppercase; letter-spacing: 2px; }
+        
+        #start-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, rgba(10,10,20,0.9) 0%, rgba(0,0,0,1) 100%);
+            display: flex; justify-content: center; align-items: center; z-index: 999;
+            flex-direction: column;
+        }
+
+        #start-btn {
+            padding: 15px 50px;
+            font-size: 20px;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: bold;
+            background: transparent;
+            color: #4fa;
+            border: 2px solid #4fa;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            transition: 0.3s;
+            box-shadow: 0 0 15px rgba(68, 255, 170, 0.2);
+        }
+
+        #start-btn:hover { background: #4fa; color: black; box-shadow: 0 0 30px rgba(68, 255, 170, 0.8); }
+
+        .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+</head>
+<body>
+
+    <div id="info">
+        <h2>Som das Estrelas</h2>
+        <p style="font-size: 1.1em; margin-bottom: 5px;">Sistema Alpha-Centauri (Simulado)</p>
+        <p style="font-size: 0.9em; opacity: 0.8;">Clique para sonificar os dados.</p>
+        
+        <div style="margin-top: 15px; font-size: 0.9em;">
+            <div><span class="legend-dot" style="background:#ff3333; box-shadow: 0 0 5px red;"></span>Grave (Frias)</div>
+            <div><span class="legend-dot" style="background:#4488ff; box-shadow: 0 0 5px blue;"></span>Agudo (Quentes)</div>
+        </div>
+        
+        <hr style="border-color: rgba(255,255,255,0.1); margin: 15px 0;">
+        <div id="star-data" style="font-size: 1.2em; color: #fff;">...</div>
+    </div>
+
+    <div id="start-overlay">
+        <h1 style="color:white; font-weight:100; margin-bottom:30px; letter-spacing: 5px;">EXPLORADOR ESPACIAL</h1>
+        <button id="start-btn">INICIAR SISTEMA</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        // Imports para o efeito de BRILHO (Bloom)
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        let scene, camera, renderer, raycaster, mouse, composer;
+        let stars = [];
+        const btn = document.getElementById('start-btn');
+        const overlay = document.getElementById('start-overlay');
+        const dataDisplay = document.getElementById('star-data');
+        let synth, reverb;
+
+        btn.addEventListener('click', async () => {
+            await Tone.start();
+            // Som mais espacial (Synth FM)
+            synth = new Tone.PolySynth(Tone.FMSynth, {
+                envelope: { attack: 0.2, decay: 0.5, sustain: 0.3, release: 2 }
+            }).toDestination();
+            
+            reverb = new Tone.Reverb({ decay: 8, wet: 0.6 }).toDestination();
+            synth.connect(reverb);
+
+            overlay.style.opacity = 0;
+            setTimeout(() => overlay.remove(), 1000);
+            init();
+        });
+
+        function init() {
+            scene = new THREE.Scene();
+            // Fundo levemente azulado escuro, não preto total
+            scene.background = new THREE.Color(0x020207); 
+            scene.fog = new THREE.FogExp2(0x020207, 0.02);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 30);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            // Configuração para as cores brilharem mais (Tone Mapping)
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            document.body.appendChild(renderer.domElement);
+
+            // --- PÓS-PROCESSAMENTO (BLOOM) ---
+            const renderScene = new RenderPass(scene, camera);
+            
+            // Parâmetros do Bloom: (Resolução, Força, Raio, Limiar)
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 0; // Tudo brilha
+            bloomPass.strength = 2.0; // Força do brilho (aumente para mais neon)
+            bloomPass.radius = 0.5;
+
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            // --- OBJETOS ---
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.2;
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            createBackgroundStars(); // Poeira estelar ao fundo
+            createMainStars(50);     // Estrelas interativas
+
+            window.addEventListener('resize', onResize);
+            window.addEventListener('pointerdown', onClick);
+            
+            animate();
+        }
+
+        // Cria milhares de pontinhos brancos no fundo para profundidade
+        function createBackgroundStars() {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            for (let i = 0; i < 3000; i++) {
+                vertices.push(THREE.MathUtils.randFloatSpread(200)); // x
+                vertices.push(THREE.MathUtils.randFloatSpread(200)); // y
+                vertices.push(THREE.MathUtils.randFloatSpread(200)); // z
+            }
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const material = new THREE.PointsMaterial({ color: 0x888888, size: 0.5 });
+            const points = new THREE.Points(geometry, material);
+            scene.add(points);
+        }
+
+        function createMainStars(count) {
+            const geometry = new THREE.SphereGeometry(1, 32, 32);
+
+            for (let i = 0; i < count; i++) {
+                const temp = Math.random(); 
+                const size = 0.2 + Math.random() * 0.8;
+
+                // PALETA DE CORES REALISTA (Kelvin)
+                // Frio (Vermelho) -> Quente (Azul)
+                const color = new THREE.Color();
+                if (temp < 0.2) color.setHex(0xff3333); // Anã Vermelha
+                else if (temp < 0.4) color.setHex(0xffaa33); // Laranja
+                else if (temp < 0.7) color.setHex(0xffffff); // Branca
+                else color.setHex(0x3388ff); // Gigante Azul
+
+                // MeshBasicMaterial emite "luz própria" e reage melhor ao Bloom
+                const material = new THREE.MeshBasicMaterial({ color: color }); 
+
+                const star = new THREE.Mesh(geometry, material);
+                star.position.set(
+                    (Math.random() - 0.5) * 60,
+                    (Math.random() - 0.5) * 40,
+                    (Math.random() - 0.5) * 40
+                );
+                star.scale.set(size, size, size);
+                
+                // Adiciona uma luz pontual dentro de CADA estrela para iluminar as vizinhas
+                const light = new THREE.PointLight(color, 1, 10);
+                star.add(light);
+
+                star.userData = { temp: temp, size: size, originalColor: color.clone() };
+                scene.add(star);
+                stars.push(star);
+            }
+        }
+
+        function onClick(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(stars);
+
+            if (intersects.length > 0) {
+                const star = intersects[0].object;
+                
+                // Animação de pulso (Fica branco forte e volta)
+                star.material.color.setHex(0xffffff);
+                setTimeout(() => star.material.color.copy(star.userData.originalColor), 150);
+                
+                // Som
+                const freq = 100 + (star.userData.temp * 1000);
+                const dur = star.userData.size;
+                synth.triggerAttackRelease(freq, dur);
+                
+                dataDisplay.innerHTML = `<span style="color:#4fa">${Math.round(freq)}Hz</span> <span style="font-size:0.6em">FREQUENCY</span>`;
+            }
+        }
+
+        function onResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight); // Importante redimensionar o composer
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            // IMPORTANTE: Usar composer.render() em vez de renderer.render()
+            composer.render(); 
+        }
+    </script>
+</body>
+</html>
