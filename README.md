@@ -61,4 +61,4 @@ Lógica Matemática: Entende coordenadas 3D e mapeamento linear de valores (fís
 
 Resolução de Problemas: Contornou problemas de importação de módulos e políticas de áudio do browser.
 
-Próximo passo sugerido: Agora que você tem o resumo, quer que eu escreva um texto curto para o seu LinkedIn anunciando o projeto com o link do seu portfólio?
+
